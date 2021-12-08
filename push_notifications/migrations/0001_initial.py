@@ -21,7 +21,7 @@ class Migration(migrations.Migration):
                 ('date_created', models.DateTimeField(auto_now_add=True, verbose_name='Creation date', null=True)),
                 ('device_id', models.UUIDField(help_text='UDID / UIDevice.identifierForVendor()', max_length=32, null=True, verbose_name='Device ID', blank=True, db_index=True)),
                 ('registration_id', models.CharField(unique=True, max_length=64, verbose_name='Registration ID')),
-                ('user', models.ForeignKey(blank=True, to=settings.PUSH_NOTIFICATIONS_SETTINGS.get("USER_MODEL", setting.AUTH_USER_MODEL), null=True, on_delete=models.CASCADE)),
+                ('user', models.ForeignKey(blank=True, to=settings.PUSH_NOTIFICATIONS_SETTINGS.get("USER_MODEL", settings.AUTH_USER_MODEL), null=True, on_delete=models.CASCADE)),
             ],
             options={
                 'verbose_name': 'APNS device',
