@@ -11,7 +11,7 @@ from django.core.exceptions import ImproperlyConfigured
 
 from .compat import Request, urlopen
 from .conf import get_manager
-from .exceptions import NotificationError
+from .exceptions import GCMError
 from .models import GCMDevice
 
 
@@ -22,17 +22,12 @@ FCM_TARGETS_KEYS = [
 ]
 FCM_OPTIONS_KEYS = [
 	"collapse_key", "priority", "content_available", "delay_while_idle", "time_to_live",
-	"restricted_package_name", "dry_run"
+	"restricted_package_name", "dry_run", "mutable_content"
 ]
 FCM_NOTIFICATIONS_PAYLOAD_KEYS = [
-	"title", "body", "icon", "sound", "badge", "color", "tag", "click_action",
+	"title", "body", "icon", "image", "sound", "badge", "color", "tag", "click_action",
 	"body_loc_key", "body_loc_args", "title_loc_key", "title_loc_args", "android_channel_id"
 ]
-
-
-class GCMError(NotificationError):
-	pass
-
 
 def _chunks(l, n):
 	"""

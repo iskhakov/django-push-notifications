@@ -1,15 +1,21 @@
 django-push-notifications
 =========================
-.. image:: https://travis-ci.org/jazzband/django-push-notifications.svg?branch=master
-	:target: https://travis-ci.org/jazzband/django-push-notifications
 
 .. image:: https://jazzband.co/static/img/badge.svg
-	:target: https://jazzband.co/
-	:alt: Jazzband
+   :target: https://jazzband.co/
+   :alt: Jazzband
 
-A minimal Django app that implements Device models that can send messages through APNS, FCM/GCM and WNS.
+.. image:: https://github.com/jazzband/django-push-notifications/workflows/Test/badge.svg
+   :target: https://github.com/jazzband/django-push-notifications/actions
+   :alt: GitHub Actions
 
-The app implements three models: ``GCMDevice``, ``APNSDevice`` and ``WNSDevice``. Those models share the same attributes:
+.. image:: https://codecov.io/gh/jazzband/django-push-notifications/branch/master/graph/badge.svg?token=PcC594rhI4
+   :target: https://codecov.io/gh/jazzband/django-push-notifications
+   :alt: Code coverage
+
+A minimal Django app that implements Device models that can send messages through APNS, FCM/GCM, WNS and WebPush.
+
+The app implements four models: ``GCMDevice``, ``APNSDevice``, ``WNSDevice`` and ``WebPushDevice``. Those models share the same attributes:
  - ``name`` (optional): A name for the device.
  - ``active`` (default True): A boolean that determines whether the device will be sent notifications.
  - ``user`` (optional): A foreign key to auth.User, if you wish to link the device to a specific user.
@@ -18,18 +24,19 @@ The app implements three models: ``GCMDevice``, ``APNSDevice`` and ``WNSDevice``
 
 
 The app also implements an admin panel, through which you can test single and bulk notifications. Select one or more
-FCM/GCM, APNS or WNS devices and in the action dropdown, select "Send test message" or "Send test message in bulk", accordingly.
+FCM/GCM, APNS, WNS or WebPush devices and in the action dropdown, select "Send test message" or "Send test message in bulk", accordingly.
 Note that sending a non-bulk test message to more than one device will just iterate over the devices and send multiple
 single messages.
 UPDATE_ON_DUPLICATE_REG_ID: Transform create of an existing Device (based on registration id) into a update. See below Update of device with duplicate registration ID for more details.
 
 Dependencies
 ------------
-- Python 3.5+
-- Django 1.11+
+- Python 3.6+
+- Django 2.2+
 - For the API module, Django REST Framework 3.7+ is required.
-- For WebPush (WP), pywebpush 1.3.0+ is required. py-vapid 1.3.0+ is required for generating the WebPush private key; however this
+- For WebPush (WP), pywebpush 1.3.0+ is required (optional). py-vapid 1.3.0+ is required for generating the WebPush private key; however this
   step does not need to occur on the application server.
+- For Apple Push (APNS), apns2 0.3+ is required (optional).
 
 Setup
 -----
@@ -37,7 +44,7 @@ You can install the library directly from pypi using pip:
 
 .. code-block:: shell
 
-	$ pip install django-push-notifications
+	$ pip install django-push-notifications[WP,APNS]
 
 
 Edit your settings.py file:
@@ -67,6 +74,7 @@ Edit your settings.py file:
 	If you are planning on running your project with ``APNS_USE_SANDBOX=True``, then make sure you have set the
 	*development* certificate as your ``APNS_CERTIFICATE``. Otherwise the app will not be able to connect to the correct host. See settings_ for details.
 
+
 For more information about how to generate certificates, see `docs/APNS <https://github.com/jazzband/django-push-notifications/blob/master/docs/APNS.rst>`_.
 
 You can learn more about APNS certificates `here <https://developer.apple.com/library/archive/documentation/NetworkingInternet/Conceptual/RemoteNotificationsPG/APNSOverview.html>`_.
@@ -91,10 +99,13 @@ For WNS, you need both the ``WNS_PACKAGE_SECURITY_KEY`` and the ``WNS_SECRET_KEY
 
 **APNS settings**
 
-- ``APNS_CERTIFICATE``: Absolute path to your APNS certificate file. Certificates with passphrases are not supported. Read more about `Generation of an APNS PEM file <https://github.com/jazzband/django-push-notifications/blob/master/docs/APNS.rst>`_.
+- ``APNS_CERTIFICATE``: Absolute path to your APNS certificate file. Certificates with passphrases are not supported. If iOS application was build with "Release" flag, you need to use production certificate, otherwise debug. Read more about `Generation of an APNS PEM file <https://github.com/jazzband/django-push-notifications/blob/master/docs/APNS.rst>`_.
+- ``APNS_AUTH_KEY_PATH``: Absolute path to your APNS signing key file for `Token-Based Authentication <https://developer.apple.com/documentation/usernotifications/setting_up_a_remote_notification_server/establishing_a_token-based_connection_to_apns>`_ . Use this instead of ``APNS_CERTIFICATE`` if you are using ``.p8`` signing key certificate.
+- ``APNS_AUTH_KEY_ID``: The 10-character Key ID you obtained from your Apple developer account
+- ``APNS_TEAM_ID``: 10-character Team ID you use for developing your company’s apps for iOS.
 - ``APNS_TOPIC``: The topic of the remote notification, which is typically the bundle ID for your app. If you omit this header and your APNs certificate does not specify multiple topics, the APNs server uses the certificate’s Subject as the default topic.
 - ``APNS_USE_ALTERNATIVE_PORT``: Use port 2197 for APNS, instead of default port 443.
-- ``APNS_USE_SANDBOX``: Use 'api.development.push.apple.com', instead of default host 'api.push.apple.com'.
+- ``APNS_USE_SANDBOX``: Use 'api.development.push.apple.com', instead of default host 'api.push.apple.com'. Default value depends on ``DEBUG`` setting of your environment: if ``DEBUG`` is True and you use production certificate, you should explicitly set ``APNS_USE_SANDBOX`` to False.
 
 **FCM/GCM settings**
 
@@ -183,7 +194,49 @@ For WNS, you need both the ``WNS_PACKAGE_SECURITY_KEY`` and the ``WNS_SECRET_KEY
 		}
 		return outputArray;
 	}
-	function loadVersionBrowser (userAgent) {
+
+	function loadVersionBrowser () {
+		if ("userAgentData" in navigator) {
+			// navigator.userAgentData is not available in
+			// Firefox and Safari
+			const uaData = navigator.userAgentData;
+			// Outputs of navigator.userAgentData.brands[n].brand are e.g.
+			// Chrome: 'Google Chrome'
+			// Edge: 'Microsoft Edge'
+			// Opera: 'Opera'
+			let browsername;
+			let browserversion;
+			let chromeVersion = null;
+			for (var i = 0; i < uaData.brands.length; i++) {
+				let brand = uaData.brands[i].brand;
+				browserversion = uaData.brands[i].version;
+				if (brand.match(/opera|chrome|edge|safari|firefox|msie|trident/i) !== null) {
+					// If we have a chrome match, save the match, but try to find another match
+					// E.g. Edge can also produce a false Chrome match.
+					if (brand.match(/chrome/i) !== null) {
+						chromeVersion = browserversion;
+					}
+					// If this is not a chrome match return immediately
+					else {
+						browsername = brand.substr(brand.indexOf(' ')+1);
+						return {
+							name: browsername,
+							version: browserversion
+						}
+					}
+				}
+			}
+			// No non-Chrome match was found. If we have a chrome match, return it.
+			if (chromeVersion !== null) {
+				return {
+					name: "chrome",
+					version: chromeVersion
+				}
+			}
+		}
+		// If no userAgentData is not present, or if no match via userAgentData was found,
+		// try to extract the browser name and version from userAgent
+		const userAgent = navigator.userAgent;
 		var ua = userAgent, tem, M = ua.match(/(opera|chrome|safari|firefox|msie|trident(?=\/))\/?\s*(\d+)/i) || [];
 		if (/trident/i.test(M[1])) {
 			tem = /\brv[ :]+(\d+)/g.exec(ua) || [];

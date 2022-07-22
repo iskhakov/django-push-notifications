@@ -1,13 +1,11 @@
 from django.apps import apps
 from django.contrib import admin, messages
-from django.utils.encoding import force_text
-from django.utils.translation import ugettext_lazy as _
+from django.utils.encoding import force_str
+from django.utils.translation import gettext_lazy as _
 
-from .apns import APNSServerError
-from .gcm import GCMError
+from .exceptions import APNSServerError, GCMError, WebPushError
 from .models import APNSDevice, GCMDevice, WebPushDevice, WNSDevice
 from .settings import PUSH_NOTIFICATIONS_SETTINGS as SETTINGS
-from .webpush import WebPushError
 
 
 User = apps.get_model(*SETTINGS["USER_MODEL"].split("."))
@@ -45,7 +43,7 @@ class DeviceAdmin(admin.ModelAdmin):
 			except APNSServerError as e:
 				errors.append(e.status)
 			except WebPushError as e:
-				errors.append(force_text(e))
+				errors.append(force_str(e))
 
 			if bulk:
 				break
@@ -57,13 +55,21 @@ class DeviceAdmin(admin.ModelAdmin):
 				if "error" in r["results"][0]:
 					errors.append(r["results"][0]["error"])
 		else:
-			try:
-				errors = [r["error"] for r in ret[0][0]["results"] if "error" in r]
-			except TypeError:
-				for entry in ret[0][0]:
-					errors = errors + [r["error"] for r in entry["results"] if "error" in r]
-			except IndexError:
-				pass
+			if "results" in ret[0][0]:
+				try:
+					errors = [r["error"] for r in ret[0][0]["results"] if "error" in r]
+				except TypeError:
+					for entry in ret[0][0]:
+						errors = errors + [r["error"] for r in entry["results"] if "error" in r]
+				except IndexError:
+					pass
+			else:
+				# different format, e.g.:
+				# [{'some_token1': 'Success',
+				#  'some_token2': 'BadDeviceToken'}]
+				for key, value in ret[0][0].items():
+					if value.lower() != "success":
+						errors.append(value)
 		if errors:
 			self.message_user(
 				request, _("Some messages could not be processed: %r" % (", ".join(errors))),
@@ -73,14 +79,24 @@ class DeviceAdmin(admin.ModelAdmin):
 			if bulk:
 				# When the queryset exceeds the max_recipients value, the
 				# send_message method returns a list of dicts, one per chunk
-				try:
-					success = ret[0][0]["success"]
-				except TypeError:
-					success = 0
-					for entry in ret[0][0]:
-						success = success + entry["success"]
-				if success == 0:
-					return
+				if "results" in ret[0][0]:
+					try:
+						success = ret[0][0]["success"]
+					except TypeError:
+						success = 0
+						for entry in ret[0][0]:
+							success = success + entry["success"]
+					if success == 0:
+						return
+				else:
+					# different format, e.g.:
+					# [{'some_token1': 'Success',
+					#  'some_token2': 'BadDeviceToken'}]
+					success = []
+					for key, value in ret[0][0].items():
+						if value.lower() == "success":
+							success.append(key)
+
 			elif len(errors) == len(ret):
 				return
 			if errors:
@@ -117,7 +133,17 @@ class GCMDeviceAdmin(DeviceAdmin):
 	list_filter = ("active", "cloud_message_type")
 
 
+class WebPushDeviceAdmin(DeviceAdmin):
+	list_display = ("__str__", "browser", "user", "active", "date_created")
+	list_filter = ("active", "browser")
+
+	if hasattr(User, "USERNAME_FIELD"):
+		search_fields = ("name", "registration_id", "user__%s" % (User.USERNAME_FIELD))
+	else:
+		search_fields = ("name", "registration_id")
+
+
 admin.site.register(APNSDevice, DeviceAdmin)
 admin.site.register(GCMDevice, GCMDeviceAdmin)
 admin.site.register(WNSDevice, DeviceAdmin)
-admin.site.register(WebPushDevice, DeviceAdmin)
+admin.site.register(WebPushDevice, WebPushDeviceAdmin)
